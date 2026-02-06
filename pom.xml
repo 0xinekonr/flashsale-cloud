@@ -22,6 +22,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <spring-cloud.version>2025.0.1</spring-cloud.version>
     <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
+    <lombok.version>1.18.42</lombok.version>
   </properties>
 
   <dependencyManagement>
@@ -48,6 +49,34 @@
     <module>libs/common</module>
     <module>services/user-service</module>
     <module>services/gateway</module>
+    <module>services/auth-service</module>
   </modules>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <version>${lombok.version}</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+              <version>${lombok.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 
 </project>
