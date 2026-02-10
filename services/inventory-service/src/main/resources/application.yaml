@@ -1,0 +1,21 @@
+server:
+  port: 18083 # 库存服务端口
+spring:
+  application:
+    name: inventory-service
+  profiles:
+    active: dev
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:18848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+      config:
+        server-addr: ${NACOS_ADDR:127.0.0.1:18848}
+        file-extension: yml
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+  config:
+    import:
+      - optional:nacos:${spring.application.name}-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
