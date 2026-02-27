@@ -3,6 +3,7 @@ package com.axin.flashsale.payment.controller;
 import com.axin.flashsale.payment.client.OrderClient;
 import com.axin.flashsale.payment.entity.Payment;
 import com.axin.flashsale.payment.mapper.PaymentMapper;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,8 +16,11 @@ public class PaymentController {
     @Autowired
     private PaymentMapper paymentMapper;
 
+//    @Autowired
+//    private OrderClient orderClient;  // M4: 移除 Feign Client
+
     @Autowired
-    private OrderClient orderClient;
+    private RabbitTemplate rabbitTemplate;  // M4: 注入 RabbitMQ 模板
 
     /**
      * 1. 发起支付 （创建流水）
@@ -46,9 +50,11 @@ public class PaymentController {
         payment.setTransactionId("ALIPAY_" + System.currentTimeMillis());
         paymentMapper.updateById(payment);
 
-        // C. 远程回调订单服务 （关键！闭环最后一步）
-        // 在 M4 我们会把这一步改成发 MQ消息，现在先用 Feign 直连
-        orderClient.finishOrder(payment.getOrderId());
+        // C. 发送 MQ 消息 （异步解耦）
+        // 交换机(Exchange): "" (使用默认交换机)
+        // 路由键(Routing Key): "order.pay.queue" (直接发给这个队列)
+        // 消息内容：订单ID (实际生产通常发 JSON 对象，这里简单发个ID)
+        rabbitTemplate.convertAndSend("order.pay.queue", payment.getOrderId());
         return "SUCCESS";
     }
 }
