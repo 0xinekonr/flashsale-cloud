@@ -1,12 +1,13 @@
 package com.axin.flashsale.order.client;
 
+import com.axin.flashsale.order.client.fallback.InventoryClientFallback;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 // name = "inventory-service" 必须与 Nacos 里的服务名一致
-@FeignClient(name = "inventory-service")
+@FeignClient(name = "inventory-service", fallback = InventoryClientFallback.class)
 public interface InventoryClient {
 
     /**
