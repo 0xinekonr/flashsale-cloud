@@ -5,6 +5,7 @@ import com.axin.flashsale.order.client.InventoryClient;
 import com.axin.flashsale.order.config.RabbitConfig;
 import com.axin.flashsale.order.entity.Order;
 import com.axin.flashsale.order.mapper.OrderMapper;
+import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -20,15 +21,17 @@ public class SeckillOrderListener {
     @Autowired
     private InventoryClient inventoryClient;
 
+    /**
+     * 开启分布式事务
+     * name: 给这个事务起个名字
+     * rollbackFor: 遇到任何异常都回滚
+     */
+    @GlobalTransactional(name = "seckill-create-order", rollbackFor = Exception.class)
     @RabbitListener(queues = RabbitConfig.SECKILL_ORDER_QUEUE)
     public void createSeckillOrder(SeckillMessage message) {
-//        System.out.println("开始异步创建秒杀订单：" + message);
+        System.out.println("全局事务 XID: " + org.apache.seata.core.context.RootContext.getXID());
 
-        // 1. 幂等性/防重检查 (DB层面兜底)
-        // 实际上 Redis 已经挡了一层，这里可以再查库确认（可选），或者依赖数据库唯一索引
-        // 假设我们在订单表加了唯一索引 uk_user_product，这里 insert 会报错忽略即可
-
-        // 2. 组装订单对象
+        // 1. 组装并插入订单
         Order order = new Order();
         order.setUserId(message.getUserId());
         order.setProductId(message.getProductId());
@@ -37,18 +40,19 @@ public class SeckillOrderListener {
         order.setStatus("NEW");
         order.setCreateTime(LocalDateTime.now());
 
-        // 3. 写入数据库（创建订单）
-        try {
-            orderMapper.insert(order);
+        orderMapper.insert(order);
+        System.out.println("1. 订单已插入本地数据库，ID:  " + order.getId());
 
-            // === 4. 同步扣减 MySQL 库存（异步削峰后执行）===
-            // 这里调用 M3 写好的 Feign 接口：UPDATE inventory SET ...
-            // 注意：因为已经是“已支付”或“秒杀成功”状态，这里实际上是在同步数据
-            inventoryClient.lockStock(message.getProductId(), 1);
-//            System.out.println("秒杀订单落库成功 + 库存同步完成： " + order.getId());
-        } catch (Exception e) {
-            // 可能是重复消费导致的唯一索引冲突
-            System.err.println("订单落库失败" + e.getMessage());
-        }
+        // 2. 远程调用库存服务 (Feign 会自动把 XID 放在 Header 里传过去)
+        System.out.println("2. 准备调用 Inventory Service 扣减库存...");
+        Boolean lockResult = inventoryClient.lockStock(message.getProductId(), 1);
+        System.out.println("3. Inventory Service 返回结果：" + lockResult);
+
+        // 3. 模拟一个恐怖的宕机异常！（用来测试分布式回滚）
+//        System.out.println("4. 模拟系统突然崩溃！");
+//        int a = 1 / 0; // 这里会抛出 ArithmeticException
+
+        System.out.println("秒杀订单落库成功 + 库存同步完成： " + order.getId());
+
     }
 }
