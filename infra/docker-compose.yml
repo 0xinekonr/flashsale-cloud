@@ -45,3 +45,10 @@ services:
       - ./seata-application.yml:/seata-server/resources/application.yml
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    restart: always
+    ports:
+      - "9411:9411"

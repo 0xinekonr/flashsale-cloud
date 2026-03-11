@@ -3,9 +3,11 @@ package com.axin.flashsale.seckill.controller;
 import com.alibaba.csp.sentinel.annotation.SentinelResource;
 import com.alibaba.csp.sentinel.slots.block.BlockException;
 import com.axin.flashsale.seckill.service.SeckillService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+@Slf4j
 @RestController
 @RequestMapping("/seckill")
 public class SeckillController {
@@ -14,15 +16,15 @@ public class SeckillController {
     private SeckillService seckillService;
 
     /**
-     * @SentinelResource 定义了一个受保护的资源
+     * SentinelResource 定义了一个受保护的资源
      * value：资源名称（在控制台里显示的名称）
      * blockHandler：被限流/降级时，去调用哪个方法处理
-     *
      * 秒杀接口
      */
     @PostMapping("/{activityId}")
     @SentinelResource(value = "doSeckillResource", blockHandler = "seckillBlockHandler")
     public String doSeckill(@PathVariable Long activityId, @RequestParam Long userId) {
+        log.info("接收到秒杀请求，userId: {}", userId);
         boolean success = seckillService.seckill(activityId, userId);
         return success ? "恭喜！抢购成功（Redis预扣）" : "很遗憾，没抢到";
     }
