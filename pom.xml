@@ -46,12 +46,13 @@
   </dependencyManagement>
 
   <modules>
-    <module>libs/common</module>
+    <module>libs/common-core</module>
     <module>services/user-service</module>
     <module>services/gateway</module>
     <module>services/auth-service</module>
     <module>services/inventory-service</module>
     <module>services/order-service</module>
+    <module>libs/common-web</module>
   </modules>
 
   <dependencies>
