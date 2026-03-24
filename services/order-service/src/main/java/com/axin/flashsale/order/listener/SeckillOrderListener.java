@@ -1,15 +1,18 @@
 package com.axin.flashsale.order.listener;
 
+import com.axin.flashsale.common.constant.GlobalConstants;
 import com.axin.flashsale.common.dto.SeckillMessage;
 import com.axin.flashsale.order.client.InventoryClient;
-import com.axin.flashsale.order.config.RabbitConfig;
 import com.axin.flashsale.order.entity.Order;
+import com.axin.flashsale.order.enums.OrderStatusEnum;
 import com.axin.flashsale.order.mapper.OrderMapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -23,38 +26,44 @@ public class SeckillOrderListener {
     @Autowired
     private InventoryClient inventoryClient;
 
-    /**
-     * 开启分布式事务
-     * name: 给这个事务起个名字
-     * rollbackFor: 遇到任何异常都回滚
-     */
-    @GlobalTransactional(name = "seckill-create-order", rollbackFor = Exception.class)
-    @RabbitListener(queues = RabbitConfig.SECKILL_ORDER_QUEUE)
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    @Transactional(rollbackFor = Exception.class)
+    @RabbitListener(queues = GlobalConstants.MQ.SECKILL_ORDER_QUEUE)
     public void createSeckillOrder(SeckillMessage message) {
-        log.info("全局事务 XID: {}", org.apache.seata.core.context.RootContext.getXID());
+        // 幂等检查：同一用户+同一活动只能有一单
+        Long existCount = orderMapper.selectCount(
+                new QueryWrapper<Order>()
+                        .eq("user_id", message.getUserId())
+                        .eq("product_id", message.getProductId())
+                        .ne("status", OrderStatusEnum.CANCELLED.getCode()));
+        if (existCount > 0) {
+            log.warn("秒杀订单已存在, userId={}, productId={}, 跳过创建",
+                    message.getUserId(), message.getProductId());
+            return;
+        }
 
         // 1. 组装并插入订单
         Order order = new Order();
         order.setUserId(message.getUserId());
         order.setProductId(message.getProductId());
-        order.setCount(1);  // 秒杀通常限购1件
+        order.setCount(1);
         order.setTotalAmount(message.getSeckillPrice());
-        order.setStatus("NEW");
+        order.setStatus(OrderStatusEnum.NEW.getCode());
         order.setCreateTime(LocalDateTime.now());
 
         orderMapper.insert(order);
-        log.info("1. 订单已插入本地数据库，ID:  {}", order.getId());
+        log.info("秒杀订单已插入, orderId={}", order.getId());
 
-        // 2. 远程调用库存服务 (Feign 会自动把 XID 放在 Header 里传过去)
-        log.info("2. 准备调用 Inventory Service 扣减库存...");
+        // 2. 远程锁定库存
         Boolean lockResult = inventoryClient.lockStock(message.getProductId(), 1);
-        log.info("3. Inventory Service 返回结果：{}", lockResult);
+        log.info("库存锁定结果: {}", lockResult);
 
-        // 3. 模拟一个恐怖的宕机异常！（用来测试分布式回滚）
-//        System.out.println("4. 模拟系统突然崩溃！");
-//        int a = 1 / 0; // 这里会抛出 ArithmeticException
-
-        log.info("4. 秒杀订单落库成功 + 库存同步完成： {}", order.getId());
-
+        // 3. 发送订单ID到延迟队列
+        rabbitTemplate.convertAndSend(GlobalConstants.MQ.ORDER_EVENT_EXCHANGE,
+                GlobalConstants.MQ.ORDER_CREATE_ROUTING_KEY,
+                order.getId());
+        log.info("秒杀订单[{}]创建完成, 已发送延迟取消检测消息", order.getId());
     }
 }

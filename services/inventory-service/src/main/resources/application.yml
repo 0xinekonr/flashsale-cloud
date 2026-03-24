@@ -19,6 +19,9 @@ spring:
   config:
     import:
       - optional:nacos:${spring.application.name}-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
 
 # Seata 分布式事务配置
 seata:

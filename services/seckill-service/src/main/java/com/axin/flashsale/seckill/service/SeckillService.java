@@ -1,8 +1,13 @@
 package com.axin.flashsale.seckill.service;
 
+import com.axin.flashsale.common.constant.GlobalConstants;
 import com.axin.flashsale.common.dto.SeckillMessage;
+import com.axin.flashsale.common.exception.BizException;
+import com.axin.flashsale.common.exception.SystemCode;
 import com.axin.flashsale.seckill.entity.SeckillActivity;
+import com.axin.flashsale.seckill.exception.SeckillErrorCode;
 import com.axin.flashsale.seckill.mapper.SeckillActivityMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -10,9 +15,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
-import java.util.List;
 
+@Slf4j
 @Service
 public class SeckillService {
 
@@ -23,10 +29,9 @@ public class SeckillService {
     private RabbitTemplate rabbitTemplate;
 
     @Autowired
-    private SeckillActivityMapper activityMapper;   // 用于获取商品ID和价格
+    private SeckillActivityMapper activityMapper;
 
-    // 初始化 Lua 脚本对象
-    private DefaultRedisScript<Long> stockScript;
+    private final DefaultRedisScript<Long> stockScript;
 
     public SeckillService() {
         stockScript = new DefaultRedisScript<>();
@@ -34,43 +39,53 @@ public class SeckillService {
         stockScript.setResultType(Long.class);
     }
 
-    /**
-     * 核心秒杀逻辑 (Level 1: Redis 预扣)
-     * @param activityId 活动ID/商品ID
-     * @param userId 用户ID
-     * @return true=抢到了（预扣成功）， false=没抢到
-     */
     public boolean seckill(Long activityId, Long userId) {
-        // 1. 【防重】利用 Redis Set 检查用户是否已经抢购
-        // Key: seckill:users:{activityId}
-        String userKey = "seckill:users:" + activityId;
-        Boolean isMember = redisTemplate.opsForSet().isMember(userKey, userId.toString());
-        if (Boolean.TRUE.equals(isMember)) {
-//            System.out.println("用户 " + userId + "重复抢购");
-            return false;
-        }
-
-        // 2. 【预扣】执行 Lua 脚本扣库存
-        String key = "seckill:stock:" + activityId;
-        Long result = redisTemplate.execute(stockScript, Collections.singletonList(key), "1");
-
-        if (result.equals(0L)) {
-            return false;   //  库存不足
-        }
-
-        // 3. 【占位】将用户加入已抢购集合（防止重复）
-        redisTemplate.opsForSet().add(userKey, userId.toString());
-
-        // 4. 【削峰】发送消息到 MQ，异步创建订单
-        // 为了演示方便，这里现查一下数据库获取商品信息（生产环境应走缓存）
+        // 1. 校验活动
         SeckillActivity activity = activityMapper.selectById(activityId);
+        if (activity == null) {
+            throw new BizException(SeckillErrorCode.ACTIVITY_NOT_START);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isBefore(activity.getStartTime()) || now.isAfter(activity.getEndTime())) {
+            throw new BizException(SeckillErrorCode.ACTIVITY_NOT_START);
+        }
 
-        SeckillMessage message = new SeckillMessage(userId, activityId, activity.getProductId(), activity.getSeckillPrice());
+        // 2. 原子去重：SADD 返回 0 表示已存在
+        String userKey = GlobalConstants.RedisKey.SECKILL_USER_SET_PREFIX + activityId;
+        Long added = redisTemplate.opsForSet().add(userKey, userId.toString());
+        if (added == null || added == 0) {
+            throw new BizException(SeckillErrorCode.REPEAT_ORDER);
+        }
 
-        // 发送到 "seckill.order.queue"
-        rabbitTemplate.convertAndSend("seckill.order.queue", message);
-//        System.out.println("秒杀成功，消息已发送" + userId);
+        // 3. Lua 原子扣减
+        String stockKey = GlobalConstants.RedisKey.SECKILL_STOCK_PREFIX + activityId;
+        Long result = redisTemplate.execute(stockScript, Collections.singletonList(stockKey), "1");
 
+        if (result == null || result == -1L) {
+            // key 不存在，回滚用户标记
+            redisTemplate.opsForSet().remove(userKey, userId.toString());
+            throw new BizException(SeckillErrorCode.ACTIVITY_NOT_START);
+        }
+        if (result == 0L) {
+            // 库存不足，回滚用户标记
+            redisTemplate.opsForSet().remove(userKey, userId.toString());
+            throw new BizException(SeckillErrorCode.STOCK_EMPTY);
+        }
+
+        // 4. 发送 MQ 消息
+        SeckillMessage message = new SeckillMessage(
+                userId, activityId, activity.getProductId(), activity.getSeckillPrice());
+        try {
+            rabbitTemplate.convertAndSend(
+                    GlobalConstants.MQ.SECKILL_EXCHANGE,
+                    GlobalConstants.MQ.SECKILL_ROUTING_KEY, message);
+        } catch (Exception e) {
+            // MQ 发送失败：回补 Redis 库存 + 移除用户标记
+            log.error("秒杀消息发送失败, 回补库存. activityId={}, userId={}", activityId, userId, e);
+            redisTemplate.opsForValue().increment(stockKey);
+            redisTemplate.opsForSet().remove(userKey, userId.toString());
+            throw new BizException(SystemCode.SYSTEM_ERROR);
+        }
         return true;
     }
 }

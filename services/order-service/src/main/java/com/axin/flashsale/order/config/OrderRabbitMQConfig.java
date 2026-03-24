@@ -12,7 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
-public class RabbitConfig {
+public class OrderRabbitMQConfig {
 
     // 声明队列：持久化(true)
     @Bean
@@ -45,7 +45,7 @@ public class RabbitConfig {
         // 绑定死信交换机 (死亡后去哪)
         args.put("x-dead-letter-exchange", GlobalConstants.MQ.ORDER_EVENT_EXCHANGE);
         // 死信路由键 (带着什么Key去投胎)
-        args.put("x-dead-letter-routing-key", GlobalConstants.MQ.ORDER_CANCEL_ROUTING_KEY);
+        args.put("x-dead-letter-routing-key", GlobalConstants.MQ.ORDER_CANCEL_NOTIFY_ROUTING_KEY);
         // 消息存活时间 TTL (真实业务15分钟=900000，这里测试设为 30 秒 = 30000)
         args.put("x-message-ttl", 30000);
 
@@ -73,6 +73,6 @@ public class RabbitConfig {
      */
     @Bean
     public Binding orderDeadLetterBinding() {
-        return BindingBuilder.bind(orderDeadLetterQueue()).to(orderEventExchange()).with(GlobalConstants.MQ.ORDER_CANCEL_ROUTING_KEY);
+        return BindingBuilder.bind(orderDeadLetterQueue()).to(orderEventExchange()).with(GlobalConstants.MQ.ORDER_CANCEL_NOTIFY_ROUTING_KEY);
     }
 }

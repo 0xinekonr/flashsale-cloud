@@ -19,7 +19,7 @@ public class Order {
     private Long productId;
     private Integer count;
     private BigDecimal totalAmount;
-    private String status;
+    private Integer status;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

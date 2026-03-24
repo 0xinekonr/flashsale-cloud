@@ -1,0 +1,484 @@
+================================================================================
+  FlashSale Cloud — 修订版项目计划 v2.0
+  最后更新：2026-03-19
+================================================================================
+
+一、项目定位
+────────────────────────────────────────────────────────────────────────────────
+电商平台 + 高并发秒杀，以"生产级可落地"为标准，而非技术 demo。
+核心业务场景：
+  1. 普通下单：商品浏览 → 创建订单 → 锁库存 → 支付 → 完成
+  2. 秒杀活动：10 万请求/分钟，库存 1000 件
+     - 不超卖、不重复下单、可降级可限流、失败可补偿、最终一致
+  3. 订单超时关闭：15 分钟未支付 → 自动取消 → 释放库存（延迟队列 + 定时扫描兜底）
+
+后续可选扩展（不在主线路径）：
+  - 优惠券/营销（coupon-service）
+  - 通知服务（notify-service）
+  - 报表服务（report-service）
+
+
+二、微服务划分（6 核心 + 按需扩展）
+────────────────────────────────────────────────────────────────────────────────
+▸ 设计原则：一个人可维护，先做深再做广。前 6 个服务做到生产级，后续按需扩展。
+
+核心服务（Phase 1~4 交付）：
+┌─────────────────────┬──────────────────────────────────────────────────────┐
+│ 服务                │ 职责                                                 │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ gateway             │ 统一入口：JWT 鉴权前置、路由、Sentinel 限流、         │
+│                     │ 请求日志、灰度路由（按 header 分流）                  │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ auth-service        │ OAuth2 Authorization Server（OIDC）                  │
+│                     │ 合并用户管理：注册/登录/用户信息/RBAC                  │
+│                     │ RSA 密钥持久化（文件/数据库，不再每次重启重新生成）      │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ product-service     │ 商品管理：SPU/SKU/价格/分类                           │
+│                     │ 商品查询（为订单和秒杀提供价格来源）                    │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ inventory-service   │ 库存管理：预扣（lockStock）/ 回滚（unlockStock）/      │
+│                     │ 扣减确认（deductStock）/ 对账                         │
+│                     │ MQ 监听库存回滚事件                                   │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ order-service       │ 订单全生命周期：状态机（NEW→PAID→FULFILLED/CANCELLED）│
+│                     │ 延迟队列超时取消、幂等下单、Outbox 事务消息            │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ payment-service     │ 支付：模拟第三方回调、签名验证、幂等处理               │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ seckill-service     │ 秒杀入口：Redis Lua 原子扣减、SADD 原子去重、         │
+│                     │ Sentinel 限流、MQ 异步下单                            │
+└─────────────────────┴──────────────────────────────────────────────────────┘
+
+原 user-service 合并到 auth-service（消除两个服务共享 User 实体的问题）。
+
+可选扩展服务（Phase 5+ 按需添加）：
+  - coupon-service：优惠券发放/核销/规则引擎
+  - notify-service：短信/邮件/站内信（MQ 消费者）
+  - report-service：报表（接入 ES 后实现）
+  - admin-service：运营后台
+
+定时调度不单独建服务，使用 xxl-job 或 Spring @Scheduled + 分布式锁。
+
+
+三、技术栈（精简聚焦，不贪多）
+────────────────────────────────────────────────────────────────────────────────
+▸ 原则：同一层面只选一个方案，深度掌握优于广度覆盖。
+
+┌──────────────────┬────────────────────────────────────────────────────────┐
+│ 层面             │ 选型（确定方案）                                       │
+├──────────────────┼────────────────────────────────────────────────────────┤
+│ 框架             │ Spring Boot 3.5.x + Spring Cloud 2025.0.x             │
+│ 服务治理         │ Spring Cloud Alibaba 2025（Nacos + Sentinel + Seata）  │
+│ 网关             │ Spring Cloud Gateway（reactive）                      │
+│ 远程调用         │ OpenFeign + LoadBalancer                               │
+│ 熔断限流         │ Sentinel（不用 Resilience4j，Alibaba 生态统一）         │
+│ 配置中心         │ Nacos Config（不用 Spring Cloud Config + Bus）          │
+│ 数据库           │ MySQL 8.x + Flyway 迁移管理                           │
+│ ORM              │ MyBatis Plus 3.5.x                                    │
+│ 缓存/分布式锁    │ Redis（Redisson 用于分布式锁）                         │
+│ 消息队列         │ RabbitMQ（延迟队列用 TTL + DLX 模式）                  │
+│ 分布式事务       │ 场景化选择（见"事务策略"章节）                           │
+│ 分布式 ID        │ MyBatis Plus 内置 Snowflake（ASSIGN_ID）              │
+│ 认证鉴权         │ Spring Authorization Server + OAuth2 Resource Server   │
+│ 链路追踪         │ Micrometer Observation → OpenTelemetry → Zipkin        │
+│ 日志             │ SLF4J + Logback（JSON 结构化输出，traceId 贯通）       │
+│ 监控指标         │ Micrometer → Prometheus → Grafana                     │
+│ 测试             │ JUnit5 + Mockito + Testcontainers                     │
+│ 压测             │ JMeter（已有 jmx 文件）                                │
+│ 构建             │ Maven 多模块                                           │
+│ 容器化           │ Dockerfile + docker-compose                            │
+│ CI/CD            │ GitHub Actions                                        │
+└──────────────────┴────────────────────────────────────────────────────────┘
+
+
+四、事务策略（按场景选择，不一刀切）
+────────────────────────────────────────────────────────────────────────────────
+▸ ADR：为什么不在所有场景都用 Seata？
+  Seata AT 模式通过全局锁实现隔离，在高并发写场景（秒杀）下全局锁竞争会成为瓶颈。
+  因此针对不同并发量级选择不同策略：
+
+┌──────────────────────────┬────────────────────────────────────────────────┐
+│ 场景                     │ 方案                                          │
+├──────────────────────────┼────────────────────────────────────────────────┤
+│ 普通下单（中低并发）       │ 本地事务 + Outbox 模式                        │
+│                          │ 订单写入 + outbox 消息在同一个本地事务中         │
+│                          │ 异步轮询 outbox 表投递 MQ                       │
+│                          │ 消费者端做幂等消费                              │
+├──────────────────────────┼────────────────────────────────────────────────┤
+│ 秒杀下单（高并发）        │ Redis 预扣 + MQ 异步 + 最终一致                │
+│                          │ 不走 Seata，不走分布式事务                      │
+│                          │ 库存在 Redis 原子扣减，订单异步创建              │
+│                          │ 超时取消 → MQ 通知库存回滚                      │
+├──────────────────────────┼────────────────────────────────────────────────┤
+│ 支付回调                  │ 幂等回调 + 本地事务                            │
+│                          │ 验签 → 幂等检查 → 更新支付状态 → 发 MQ          │
+│                          │ 不需要分布式事务                                │
+├──────────────────────────┼────────────────────────────────────────────────┤
+│ 补偿/对账                 │ 定时扫描 + 自动修复                            │
+│                          │ 兜底机制，处理所有边界 case                     │
+└──────────────────────────┴────────────────────────────────────────────────┘
+
+
+五、仓库结构（已落地 + 待补充）
+────────────────────────────────────────────────────────────────────────────────
+flashsale-cloud/
+├── libs/
+│   ├── common-core          # 已有：DTO/常量/异常/响应体
+│   ├── common-web           # 已有：全局异常处理/校验
+│   ├── common-mq            # 新增：MQ 发布/消费封装、Outbox 支持、幂等消费模板
+│   └── common-redis         # 新增：Redis 工具类、分布式锁、幂等键
+├── services/
+│   ├── gateway              # 已有
+│   ├── auth-service         # 已有（合并 user-service）
+│   ├── product-service      # 新增
+│   ├── inventory-service    # 已有
+│   ├── order-service        # 已有
+│   ├── payment-service      # 已有
+│   └── seckill-service      # 已有
+├── infra/
+│   ├── docker-compose.yml   # 已有
+│   ├── mysql/               # 新增：Flyway 初始化脚本 / 各库 schema
+│   └── seata-application.yml# 已有
+├── deploy/
+│   ├── docker/              # 新增：各服务 Dockerfile
+│   └── docker-compose.yml   # 新增：全套服务编排（含应用服务）
+├── docs/
+│   └── adr/                 # 新增：架构决策记录
+└── CLAUDE.md
+
+
+六、里程碑路线图（修订版）
+────────────────────────────────────────────────────────────────────────────────
+
+每个里程碑产出：代码 + Flyway 迁移脚本 + 可验证验收点
+Git 规范：feature/M{n}-{描述} 分支 → PR → squash merge → main
+提交格式：Conventional Commits（feat: / fix: / refactor: / docs: / test:）
+
+================================================================================
+M0：工程基础加固（现有代码修复 + 基础设施补齐）
+================================================================================
+
+  M0.1 Git 工程化
+    - 建立 .editorconfig（统一缩进/编码）
+    - 完善 .gitignore（排除 *.jar、*.csv、*.jmx 等非源码文件）
+    - 清理仓库：移除 sentinel-dashboard-1.8.9.jar、users.csv、Thread Group.jmx
+    - 此后所有开发走 feature 分支 + conventional commits
+
+  M0.2 数据库迁移体系
+    - 引入 Flyway 依赖到各服务
+    - 为所有已有表编写 V1__init.sql（users、orders、inventory、payment、
+      seckill_activity）
+    - 建立 outbox 表结构（为 M2 做准备）
+    - 建立 idempotent_record 表（消息幂等消费记录）
+
+  M0.3 修复已有代码的 P0 级缺陷
+    a) inventory-service：
+       - 实现 InventoryRollbackListener（接收 OrderCancelEventDTO，执行 unlockStock）
+       - InventoryMapper 新增 unlockStock() SQL
+       - InventoryMapper 新增 deductStock()（支付成功后确认扣减，locked→实际出库）
+       - InventoryController 新增 GET /inventory/{productId}/available 查询可用库存
+
+    b) order-service：
+       - OrderController.createOrder 改为抛 BizException 而非返回裸字符串
+       - 统一所有 Controller 返回 Result<T>
+       - 重命名 OderListener → OrderPaymentListener（修复拼写错误）
+       - 延迟队列 TTL 改为 900000ms（15 分钟）
+       - 为普通下单增加请求幂等（基于 userId+productId+时间窗口 的幂等键）
+
+    c) seckill-service：
+       - 用户去重改为 SADD 原子操作（if SADD returns 0 → 已参与，抛 REPEAT_ORDER）
+       - 处理 Lua 脚本返回 -1（key 不存在 → 活动不存在或未预热）
+       - 添加 SeckillActivity null 检查
+       - 添加活动时间校验（startTime ≤ now ≤ endTime）
+       - SeckillLoader 改用 @Slf4j 替代 System.out.println
+       - blockHandler 返回类型改为 Result<String>（与主方法一致）
+
+    d) auth-service：
+       - JWK RSA 密钥持久化到文件（首次生成后写入 classpath，后续直接读取）
+       - Client 注册改为 JDBC-based（JdbcRegisteredClientRepository）
+
+    e) payment-service：
+       - 硬编码队列名改为 GlobalConstants.MQ.ORDER_PAY_QUEUE
+       - 清理已注释的 OrderClient 死代码
+
+    f) gateway：
+       - /seckill/** 移除 permitAll（秒杀需要 userId，必须认证）
+
+  M0.4 公共库增强
+    - common-core：新增 PageResult<T> 分页响应包装
+    - common-core：新增 IdempotentKeyUtil（生成幂等键的工具类）
+
+  验收：
+    ✓ 所有服务可正常启动
+    ✓ Flyway 自动建表
+    ✓ 创建订单 → 超时取消 → 库存正确回滚
+    ✓ 秒杀同一用户第二次请求被拦截（SADD 原子性验证）
+    ✓ auth-service 重启后已颁发 token 仍有效
+
+
+================================================================================
+M1：product-service + 业务闭环补全
+================================================================================
+
+  M1.1 product-service 建设
+    - 创建服务模块（pom.xml、application.yml、Nacos 注册）
+    - 实体设计：
+      Product（SPU）：id, name, description, categoryId, status, createTime, updateTime
+      ProductSku（SKU）：id, productId, skuName, price, attributes(JSON), status
+    - Flyway 迁移脚本：V1__init_product.sql
+    - ProductController：
+      POST   /products              — 创建商品
+      GET    /products/{id}         — 商品详情（含 SKU 列表）
+      GET    /products              — 商品列表（分页）
+      PUT    /products/{id}         — 更新商品
+      PUT    /products/{id}/status  — 上下架
+    - ProductSkuController：
+      GET    /products/{productId}/skus         — SKU 列表
+      GET    /products/{productId}/skus/{skuId} — SKU 详情（含价格）
+
+  M1.2 接入业务闭环
+    - order-service 创建订单时通过 Feign 查询 product-service 获取真实价格
+      （不再硬编码 totalAmount = count * 100）
+    - 新增 ProductClient（Feign）+ ProductClientFallback
+    - seckill-service 的 SeckillActivity 关联 productId，价格从 product-service 或
+      活动表取（秒杀价优先，降级取商品原价）
+
+  M1.3 auth-service 用户管理补全
+    - 删除独立的 user-service 模块（代码迁移到 auth-service）
+    - auth-service 增加用户管理 API：
+      POST   /users/register       — 用户注册
+      GET    /users/me              — 当前用户信息（从 JWT 解析）
+      PUT    /users/me              — 修改个人信息
+      GET    /users/{id}            — 管理员查看用户（RBAC: ADMIN）
+
+  验收：
+    ✓ 创建商品 → 创建订单（价格从商品服务获取）→ 支付 → 完成
+    ✓ 商品不存在时下单返回明确业务错误码
+    ✓ 用户注册 → 登录获取 token → 访问受保护接口
+
+
+================================================================================
+M2：一致性基础设施（Outbox + 幂等框架）
+================================================================================
+
+  ▸ 这是整个项目的"骨架级"基础设施，必须在秒杀完善之前就位。
+
+  M2.1 common-mq 模块
+    - 新建 libs/common-mq 模块
+    - OutboxMessage 实体：id, aggregateType, aggregateId, eventType,
+      payload(JSON), status(PENDING/SENT/FAILED), createTime, sentTime
+    - OutboxPublisher：在业务事务中写入 outbox 表（同一本地事务）
+    - OutboxPoller：@Scheduled 定时扫描 PENDING 消息，投递到 RabbitMQ，
+      投递成功后标记 SENT
+    - IdempotentConsumer：消费者装饰器，基于 messageId 查 idempotent_record 表
+      去重，消费成功后写入记录
+
+  M2.2 common-redis 模块
+    - 新建 libs/common-redis 模块
+    - IdempotentKeyInterceptor：基于 HTTP 请求的幂等拦截器
+      （读取 X-Idempotent-Key header，Redis SETNX 实现，TTL 可配）
+    - DistributedLock：基于 Redisson 的分布式锁工具
+
+  M2.3 order-service 接入 Outbox
+    - 创建订单时：本地事务中同时写 orders 表 + outbox 表
+    - outbox 消息类型：ORDER_CREATED（通知 inventory lockStock）
+    - outbox 消息类型：ORDER_CANCELLED（通知 inventory unlockStock）
+    - 移除 createOrder 中的同步 Feign 调用 lockStock
+      （改为：写 outbox → 异步投递 → inventory 消费 → 回调确认）
+
+  M2.4 inventory-service 接入幂等消费
+    - lockStock 消费者使用 IdempotentConsumer 包装
+    - 确保同一 orderId 的 lockStock 请求只执行一次
+
+  验收：
+    ✓ 创建订单后，outbox 表有 PENDING 记录
+    ✓ 3 秒内 outbox 消息被投递到 MQ（状态变为 SENT）
+    ✓ 杀掉 RabbitMQ → 创建订单仍成功 → 重启 RabbitMQ → 消息最终投递成功
+    ✓ 同一消息重复投递，inventory 只执行一次 lockStock
+
+
+================================================================================
+M3：秒杀生产级加固
+================================================================================
+
+  M3.1 秒杀链路完善
+    - SeckillService 重构：
+      1) 校验活动状态和时间窗口
+      2) SADD 原子去重（已在 M0 修复）
+      3) Lua 原子扣减（处理所有返回值：1 成功/0 库存不足/-1 key 不存在）
+      4) 发送 MQ 消息（增加确认回调，发送失败时回补 Redis 库存 + 移除用户标记）
+      5) 返回"排队中"给前端
+
+    - SeckillOrderListener（order-service 消费端）重构：
+      移除 @GlobalTransactional（不在秒杀路径用 Seata）
+      改为：本地事务创建订单 + 同步 Feign lockStock
+      （秒杀场景下 Redis 已保证不超卖，DB 层 lockStock 是兜底确认）
+
+  M3.2 Sentinel 限流规则配置
+    - 配置 seckill.doSeckillResource 的 QPS 限制（如 5000 QPS）
+    - 配置熔断规则（慢调用比例 > 50% 触发熔断）
+    - Gateway 层增加 Sentinel 过滤器（全局限流）
+    - 限流规则通过 Nacos 动态下发
+
+  M3.3 秒杀活动管理
+    - SeckillActivityController：
+      POST   /seckill/activities          — 创建秒杀活动
+      PUT    /seckill/activities/{id}     — 修改活动
+      POST   /seckill/activities/{id}/publish — 发布活动（预热库存到 Redis）
+      GET    /seckill/activities          — 活动列表（含状态）
+    - 活动状态机：DRAFT → PUBLISHED → ONGOING → ENDED
+
+  M3.4 库存预热增强
+    - SeckillLoader 只预热 PUBLISHED/ONGOING 状态的活动
+    - 支持手动触发预热（管理接口）
+    - 预热时同时初始化 Sentinel 限流规则
+
+  验收（压测）：
+    ✓ JMeter 10000 并发秒杀请求，库存 100 件
+    ✓ 最终成交量 = 100（不超卖）
+    ✓ 同一用户最多成功 1 次
+    ✓ 限流生效：超过 QPS 阈值返回"系统繁忙"
+    ✓ 所有未支付订单 15 分钟后自动取消，库存回滚
+
+
+================================================================================
+M4：支付完善 + 对账补偿
+================================================================================
+
+  M4.1 支付服务生产化
+    - 模拟支付签名验证（MD5/HMAC 签名 + 密钥，模拟支付宝异步通知格式）
+    - 支付回调幂等：基于 transactionId 唯一索引 + 状态检查
+    - 支付超时处理：支付创建后如果订单已取消，拒绝支付
+    - 退款流程（订单取消时如果已支付，自动发起退款）
+
+  M4.2 对账补偿任务
+    - order-service 定时扫描：
+      每 5 分钟扫描 status=NEW 且 createTime > 20 分钟的订单
+      （延迟队列的兜底，防止 MQ 故障导致超时取消丢失）
+    - inventory-service 对账：
+      每 30 分钟比对 lockedStock 与实际 NEW 状态订单数
+      不一致时报警 + 自动修复
+
+  M4.3 超时/重试/降级策略文档化
+    - Feign 超时配置：connectTimeout=2s, readTimeout=5s
+    - 重试策略：只有 GET 请求重试，POST 不重试（防止重复写）
+    - Sentinel 降级：秒杀服务 → 静态排队页；库存服务 → 返回锁定失败
+    - 配置写入 Nacos，可动态调整
+
+  验收：
+    ✓ 伪造签名的支付回调被拒绝（返回 403）
+    ✓ 同一支付回调重复发送 3 次，订单状态只变更 1 次
+    ✓ 手动杀掉 RabbitMQ → 创建订单 → 15 分钟后定时扫描兜底取消
+    ✓ 对账任务检测到不一致时输出告警日志
+
+
+================================================================================
+M5：可观测性 + 测试体系
+================================================================================
+
+  M5.1 全链路追踪完善
+    - traceId 在 RabbitMQ 消息 header 中传递
+      （自定义 MessagePostProcessor 注入 traceId，消费者 MDC 恢复）
+    - 结构化 JSON 日志（Logback logstash-encoder）
+    - 日志格式统一：timestamp, level, traceId, spanId, service, class, message
+
+  M5.2 Prometheus 监控
+    - 所有服务引入 micrometer-registry-prometheus
+    - Actuator 暴露 /actuator/prometheus 端点
+    - 关键业务指标埋点：
+      order_created_total, order_cancelled_total, order_paid_total
+      seckill_request_total, seckill_success_total, seckill_rejected_total
+      inventory_lock_total, inventory_unlock_total
+    - docker-compose 增加 Prometheus + Grafana 容器
+
+  M5.3 测试体系
+    - 核心 domain 单测（OrderService、SeckillService、InventoryService）
+    - Testcontainers 集成测试（MySQL + Redis + RabbitMQ）
+    - order-service 与 inventory-service 的接口合约测试
+
+  验收：
+    ✓ Grafana 看板展示 QPS/RT/错误率
+    ✓ 压测时可通过 traceId 追踪完整调用链（网关→服务→MQ→消费者）
+    ✓ mvn test 所有测试通过
+
+
+================================================================================
+M6：容器化 + CI/CD
+================================================================================
+
+  M6.1 容器化
+    - 每个服务编写 Dockerfile（多阶段构建：Maven build → JRE runtime）
+    - deploy/docker-compose.yml：一键启动全套（基础设施 + 所有应用服务）
+    - 健康检查：每个服务配置 /actuator/health
+
+  M6.2 CI/CD
+    - GitHub Actions workflow：
+      lint（checkstyle）→ test → build → docker build → push（可选）
+    - PR 必须 CI 绿灯
+    - main 分支保护：禁止直接 push
+
+  验收：
+    ✓ docker-compose up -d 一键启动整个平台
+    ✓ PR 提交后自动跑测试
+    ✓ 测试失败时 PR 不可合并
+
+
+七、Git 工程规范
+────────────────────────────────────────────────────────────────────────────────
+
+  分支策略：
+    main          — 稳定分支，只接受 PR merge
+    feature/M0-*  — 里程碑 0 的功能分支
+    feature/M1-*  — 里程碑 1 的功能分支
+    fix/*         — Bug 修复分支
+    refactor/*    — 重构分支
+
+  提交格式（Conventional Commits）：
+    feat(order): add idempotent order creation with Redis dedup key
+    fix(seckill): use atomic SADD for user deduplication to prevent race condition
+    refactor(inventory): implement unlockStock and complete rollback listener
+    docs: update Project Plan v2.0 with revised milestones
+    test(order): add unit tests for order state machine transitions
+    chore: add Flyway dependency and initial migration scripts
+
+  每个里程碑完成后打 tag：
+    v0.1.0（M0 完成）→ v0.2.0（M1 完成）→ ...
+
+
+八、安全基线（贯穿所有阶段）
+────────────────────────────────────────────────────────────────────────────────
+
+  ✓ 水平越权防护：所有涉及 userId 的查询，从 JWT claims 中取，不信任前端传参
+  ✓ 价格篡改防护：订单金额由服务端从 product-service 查询，前端不传价格
+  ✓ 支付回调伪造：签名验证（模拟）
+  ✓ 接口刷单防护：Sentinel 限流 + 秒杀验证码（可选）
+  ✓ 敏感信息：数据库密码、JWT 密钥等通过环境变量注入，不硬编码
+  ✓ CSRF：API 网关已禁用（无状态 JWT，不需要 CSRF）
+  ✓ SQL 注入：MyBatis Plus 参数化查询，不拼接 SQL
+
+
+九、实施优先级总览
+────────────────────────────────────────────────────────────────────────────────
+
+  优先级从高到低：
+
+  P0（立即）：M0 — 修复现有严重缺陷，建立工程基线
+    → 不修这些，后续所有里程碑都建在沙子上
+
+  P1（短期）：M1 — 补全 product-service，形成真实业务闭环
+    → 没有商品服务，订单和秒杀的价格来源是假的
+
+  P2（核心）：M2 — Outbox + 幂等框架
+    → 这是分布式系统可靠性的"骨架"，越早建越好
+
+  P3（重点）：M3 — 秒杀生产级
+    → 项目的核心卖点，必须经得起压测
+
+  P4（完善）：M4 — 支付 + 对账
+    → 补全"钱"相关的可靠性
+
+  P5（质量）：M5 — 可观测性 + 测试
+    → 让系统"可运维、可度量"
+
+  P6（交付）：M6 — 容器化 + CI/CD
+    → 最终形态：一键部署 + 自动化流水线
