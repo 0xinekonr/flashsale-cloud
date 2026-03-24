@@ -30,9 +30,18 @@ public interface GlobalConstants {
 
     // ================= RabbitMQ 队列与交换机 =================
     interface MQ {
+        String ORDER_PAY_QUEUE = "order.pay.queue";
         String SECKILL_EXCHANGE = "seckill.topic.exchange";
         String SECKILL_ORDER_QUEUE = "seckill.order.queue";
         String SECKILL_ROUTING_KEY = "seckill.order.create";
+
+        // --- 订单事件中心 ---
+        String ORDER_EVENT_EXCHANGE = "order.event.exchange";
+        String ORDER_DELAY_QUEUE = "order.delay.queue";
+        String ORDER_DEAD_LETTER_QUEUE = "order.dead.letter.queue";
+        String ORDER_CREATE_ROUTING_KEY = "order.create";
+        String ORDER_CANCEL_NOTIFY_ROUTING_KEY = "order.cancelled.notify";
+        String INVENTORY_ROLLBACK_QUEUE = "inventory.stock.rollback.queue";
     }
 
 }

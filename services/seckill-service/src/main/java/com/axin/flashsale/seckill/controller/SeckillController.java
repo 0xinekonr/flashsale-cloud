@@ -2,10 +2,9 @@ package com.axin.flashsale.seckill.controller;
 
 import com.alibaba.csp.sentinel.annotation.SentinelResource;
 import com.alibaba.csp.sentinel.slots.block.BlockException;
-import com.axin.flashsale.common.exception.BizException;
+import com.axin.flashsale.common.exception.SystemCode;
 import com.axin.flashsale.common.response.Result;
 import com.axin.flashsale.seckill.dto.SeckillReqDTO;
-import com.axin.flashsale.seckill.exception.SeckillErrorCode;
 import com.axin.flashsale.seckill.service.SeckillService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,27 +28,14 @@ public class SeckillController {
     @PostMapping("/do")
     @SentinelResource(value = "doSeckillResource", blockHandler = "seckillBlockHandler")
     public Result<String> doSeckill(@Validated @RequestBody SeckillReqDTO reqDTO) {
-        log.info("接收到秒杀请求，userId: {}", reqDTO.getUserId());
-        boolean success = seckillService.seckill(reqDTO.getActivityId(), reqDTO.getUserId());
-        if (success) {
-            return Result.success("恭喜！抢购成功（Redis预扣）");
-        } else {
-            // 失败时，直接抛出业务异常。GlobalExceptionHandler 会自动将其转换为 Result.fail(...)
-            throw new BizException(SeckillErrorCode.STOCK_EMPTY);
-        }
-
+        log.info("接收到秒杀请求, userId={}", reqDTO.getUserId());
+        seckillService.seckill(reqDTO.getActivityId(), reqDTO.getUserId());
+        return Result.success("恭喜！抢购成功");
     }
 
-    /**
-     * 限流/熔断时的兜底处理方法 (Fallback / BlockHandler)
-     * 注意：
-     * 1. 必须是 public
-     * 2. 返回值类型、参数列表必须和原方法完全一致！
-     * 3. 必须在参数列表最后多加一个 BlockException 参数！
-     */
-    public String seckillBlockHandler(SeckillReqDTO reqDTO, BlockException ex) {
-        System.out.println("触发 Sentinel 限流！拦截了 userId: " + reqDTO.getUserId());
-        return "哎呀，活动太火爆啦，请稍后再试！（被 Sentinel 保护）";
+    public Result<String> seckillBlockHandler(SeckillReqDTO reqDTO, BlockException ex) {
+        log.warn("触发 Sentinel 限流, userId={}", reqDTO.getUserId());
+        return Result.fail(SystemCode.FLOW_LIMITED);
     }
 }
 

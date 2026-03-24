@@ -14,6 +14,8 @@ public enum SystemCode implements IResultCode{
     PARAM_ERROR(400, "参数校验失败"),
     UNAUTHORIZED(401, "未登录或Token已过期"),
     FORBIDDEN(403, "无权限访问此资源"),
+    NOT_FOUND(404, "资源不存在"),
+    IDEMPOTENT_REJECT(409, "请勿重复提交"),
 
     // 服务降级/限流
     FLOW_LIMITED(429, "当前系统繁忙，请稍后再试");

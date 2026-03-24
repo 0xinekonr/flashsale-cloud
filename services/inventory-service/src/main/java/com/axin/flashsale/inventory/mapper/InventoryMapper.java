@@ -16,4 +16,19 @@ public interface InventoryMapper extends BaseMapper<Inventory> {
     @Update("UPDATE inventory SET available_stock = available_stock - #{count}, locked_stock = locked_stock + #{count}" +
             " WHERE product_id = #{productId} AND available_stock >= #{count}")
     int lockStock(@Param("productId") Long productId, @Param("count") Integer count);
+
+    /**
+     * 库存回滚：将锁定库存还原为可用库存
+     */
+    @Update("UPDATE inventory SET available_stock = available_stock + #{count}, " +
+            "locked_stock = locked_stock - #{count} " +
+            "WHERE product_id = #{productId} AND locked_stock >= #{count}")
+    int unlockStock(@Param("productId") Long productId, @Param("count") Integer count);
+
+    /**
+     * 扣减锁定库存（支付完成后，正式从锁定库存中移除）
+     */
+    @Update("UPDATE inventory SET locked_stock = locked_stock - #{count} " +
+            "WHERE product_id = #{productId} AND locked_stock >= #{count}")
+    int deductStock(@Param("productId") Long productId, @Param("count") Integer count);
 }
