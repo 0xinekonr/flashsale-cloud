@@ -1,9 +1,11 @@
 package com.axin.flashsale.order.controller;
 
+import com.axin.flashsale.common.dto.ProductSkuDTO;
 import com.axin.flashsale.common.exception.BizException;
 import com.axin.flashsale.common.exception.SystemCode;
 import com.axin.flashsale.common.response.Result;
 import com.axin.flashsale.order.client.InventoryClient;
+import com.axin.flashsale.order.client.ProductClient;
 import com.axin.flashsale.order.entity.Order;
 import com.axin.flashsale.order.enums.OrderStatusEnum;
 import com.axin.flashsale.order.mapper.OrderMapper;
@@ -26,23 +28,32 @@ public class OrderController {
     @Autowired
     private InventoryClient inventoryClient;
 
+    @Autowired
+    private ProductClient productClient;
+
     @PostMapping
     @Transactional
     public Result<Long> createOrder(@RequestBody Order order) {
-        // 1. 远程锁定库存
+        // 1. 从 product-service 获取价格
+        ProductSkuDTO sku = productClient.getSku(order.getProductId(), order.getSkuId());
+        if (sku == null) {
+            throw new BizException(SystemCode.NOT_FOUND.getCode(), "商品不存在");
+        }
+        BigDecimal price = sku.getPrice();
+
+        // 2. 远程锁定库存
         Boolean lockSuccess = inventoryClient.lockStock(order.getProductId(), order.getCount());
         if (!lockSuccess) {
             throw new BizException(SystemCode.SYSTEM_ERROR.getCode(), "下单失败：库存不足");
         }
 
-        // 2. 库存锁定成功，创建订单
+        // 3. 库存锁定成功，创建订单
         order.setCreateTime(LocalDateTime.now());
         order.setStatus(OrderStatusEnum.NEW.getCode());
-        // 价格暂用硬编码（M1 接入 product-service 后替换）
-        order.setTotalAmount(new BigDecimal("100").multiply(new BigDecimal(order.getCount())));
+        order.setTotalAmount(price.multiply(new BigDecimal(order.getCount())));
 
         orderMapper.insert(order);
-        log.info("订单创建成功, orderId={}", order.getId());
+        log.info("订单创建成功, orderId={}, productId={}, price={}", order.getId(), order.getProductId(), price);
         return Result.success(order.getId());
     }
 
