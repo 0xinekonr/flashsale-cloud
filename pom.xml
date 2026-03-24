@@ -23,6 +23,7 @@
     <spring-cloud.version>2025.0.1</spring-cloud.version>
     <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
     <lombok.version>1.18.42</lombok.version>
+    <flyway.version>10.21.0</flyway.version>
   </properties>
 
   <dependencyManagement>
@@ -52,6 +53,8 @@
     <module>services/auth-service</module>
     <module>services/inventory-service</module>
     <module>services/order-service</module>
+    <module>services/seckill-service</module>
+    <module>services/payment-service</module>
     <module>libs/common-web</module>
   </modules>
 

@@ -5,6 +5,15 @@ target/
 .kotlin
 *.log
 
+### Binaries & test data ###
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+*.csv
+*.jmx
+
+### Claude Code ###
+.claude/
+
 ### IntelliJ IDEA ###
 .idea/
 *.iws
