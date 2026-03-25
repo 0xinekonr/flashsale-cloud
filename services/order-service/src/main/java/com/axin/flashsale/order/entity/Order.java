@@ -17,6 +17,7 @@ public class Order {
     private Long id;
     private Long userId;
     private Long productId;
+    private Long skuId;
     private Integer count;
     private BigDecimal totalAmount;
     private Integer status;
