@@ -13,11 +13,19 @@
     <artifactId>common-mq</artifactId>
 
     <dependencies>
+        <!-- 内部依赖：提供异常、常量等基础类 -->
+        <dependency>
+            <groupId>com.0xxin.flashsale</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- MyBatis Plus：optional，使用方需自行引入（因为 OutboxMessage 使用其注解） -->
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
