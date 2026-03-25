@@ -49,6 +49,8 @@
   <modules>
     <module>libs/common-core</module>
     <module>libs/common-web</module>
+    <module>libs/common-mq</module>
+    <module>libs/common-redis</module>
     <module>services/user-service</module>
     <module>services/gateway</module>
     <module>services/auth-service</module>
