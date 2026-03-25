@@ -11,6 +11,13 @@
     <artifactId>auth-service</artifactId>
 
     <dependencies>
+        <!-- 内部依赖：提供 Result、GlobalExceptionHandler、验证支持 -->
+        <dependency>
+            <groupId>com.0xxin.flashsale</groupId>
+            <artifactId>common-web</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-authorization-server</artifactId>
