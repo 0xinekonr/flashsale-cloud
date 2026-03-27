@@ -29,6 +29,9 @@ import org.springframework.security.oauth2.server.authorization.config.annotatio
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
 
@@ -139,7 +142,28 @@ public class SecurityConfig {
     }
 
     /**
-     * 6. 密钥源 (JWK Source)
+     * 6. JWT Token 自定义声明
+     *
+     * 在 access_token 中注入 user_id，供下游服务（如 seckill-service）直接提取用户 ID，
+     * 避免额外的 Feign 调用去 auth-service 查询用户信息。
+     * 这里通过 OAuth2TokenCustomizer 在 token 生成阶段将 user_id 写入 JWT claims。
+     */
+    @Bean
+    public OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer(UserMapper userMapper) {
+        return context -> {
+            if (OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+                String username = context.getPrincipal().getName();
+                User user = userMapper.selectOne(
+                        new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+                if (user != null) {
+                    context.getClaims().claim("user_id", user.getId());
+                }
+            }
+        };
+    }
+
+    /**
+     * 7. 密钥源 (JWK Source)
      */
     @Bean
     public JWKSource<SecurityContext> jwkSource() {
@@ -149,7 +173,7 @@ public class SecurityConfig {
     }
 
     /**
-     * 7. 授权服务器元配置
+     * 8. 授权服务器元配置
      */
     @Bean
     public AuthorizationServerSettings authorizationServerSettings() {
