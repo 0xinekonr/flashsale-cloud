@@ -83,7 +83,16 @@ public class SeckillService {
             throw new BizException(SeckillErrorCode.STOCK_EMPTY);
         }
 
-        // 6. 发送 MQ 消息
+        // 6. 同步扣减 DB 库存（尽力而为，失败由对账任务兜底）
+        try {
+            activityMapper.deductStock(activityId);
+        } catch (Exception e) {
+            // DB 扣减失败不影响秒杀主流程（Redis Lua 已经原子扣减成功）
+            // StockReconciler 定时对账会修复 Redis 与 DB 的漂移
+            log.error("DB 库存扣减失败, 等待对账修复. activityId={}", activityId, e);
+        }
+
+        // 7. 发送 MQ 消息
         SeckillMessage message = new SeckillMessage(
                 userId, activityId, activity.getProductId(), activity.getSeckillPrice());
         try {
