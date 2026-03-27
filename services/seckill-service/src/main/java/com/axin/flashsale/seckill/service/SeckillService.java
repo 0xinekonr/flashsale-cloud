@@ -4,6 +4,7 @@ import com.axin.flashsale.common.constant.GlobalConstants;
 import com.axin.flashsale.common.dto.SeckillMessage;
 import com.axin.flashsale.common.exception.BizException;
 import com.axin.flashsale.common.exception.SystemCode;
+import com.axin.flashsale.seckill.dto.SeckillResultVO;
 import com.axin.flashsale.seckill.entity.SeckillActivity;
 import com.axin.flashsale.seckill.enums.SeckillActivityStatus;
 import com.axin.flashsale.seckill.exception.SeckillErrorCode;
@@ -107,5 +108,34 @@ public class SeckillService {
             throw new BizException(SystemCode.SYSTEM_ERROR);
         }
         return true;
+    }
+
+    /**
+     * 查询秒杀结果
+     *
+     * 通过 Redis SISMEMBER 检查用户是否参与过该活动（O(1) 时间复杂度），
+     * 无需跨服务调用 order-service，响应极快。
+     *
+     * @param activityId 活动 ID
+     * @param userId 用户 ID（从 JWT 提取）
+     * @return 秒杀结果
+     */
+    public SeckillResultVO checkResult(Long activityId, Long userId) {
+        String userKey = GlobalConstants.RedisKey.SECKILL_USER_SET_PREFIX + activityId;
+        Boolean isMember = redisTemplate.opsForSet().isMember(userKey, userId.toString());
+
+        if (Boolean.TRUE.equals(isMember)) {
+            return SeckillResultVO.builder()
+                    .participated(true)
+                    .activityId(activityId)
+                    .message("您已成功参与秒杀，订单处理中")
+                    .build();
+        }
+
+        return SeckillResultVO.builder()
+                .participated(false)
+                .activityId(activityId)
+                .message("您未参与该秒杀活动")
+                .build();
     }
 }

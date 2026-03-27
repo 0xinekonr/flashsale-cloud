@@ -5,6 +5,7 @@ import com.alibaba.csp.sentinel.slots.block.BlockException;
 import com.axin.flashsale.common.exception.SystemCode;
 import com.axin.flashsale.common.response.Result;
 import com.axin.flashsale.seckill.dto.SeckillReqDTO;
+import com.axin.flashsale.seckill.dto.SeckillResultVO;
 import com.axin.flashsale.seckill.service.SeckillService;
 import com.axin.flashsale.seckill.util.UserContext;
 import lombok.extern.slf4j.Slf4j;
@@ -43,5 +44,17 @@ public class SeckillController {
     public Result<String> seckillBlockHandler(SeckillReqDTO reqDTO, BlockException ex) {
         log.warn("触发 Sentinel 限流, activityId={}", reqDTO.getActivityId());
         return Result.fail(SystemCode.FLOW_LIMITED);
+    }
+
+    /**
+     * 查询秒杀结果
+     *
+     * 通过 Redis SISMEMBER O(1) 检查用户是否参与过该活动，
+     * 响应速度远快于跨服务查询 order-service。
+     */
+    @GetMapping("/result/{activityId}")
+    public Result<SeckillResultVO> checkResult(@PathVariable Long activityId) {
+        Long userId = UserContext.getUserId();
+        return Result.success(seckillService.checkResult(activityId, userId));
     }
 }
