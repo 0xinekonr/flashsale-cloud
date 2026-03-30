@@ -11,9 +11,7 @@ import java.time.LocalDateTime;
 @Data
 @TableName("orders")
 public class Order {
-    // 后面我们要换雪花算法，这里先用 AUTO 或者 INPUT
-    // 为了简单，我们暂且假设数据库ID自增，或者手动生成ID
-    @TableId(type = IdType.ASSIGN_ID)   // Mybatis Plus 内置雪花算法
+    @TableId(type = IdType.ASSIGN_ID)   // MyBatis Plus 内置雪花算法
     private Long id;
     private Long userId;
     private Long productId;
