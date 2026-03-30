@@ -31,7 +31,7 @@
 
         <dependency>
             <groupId>com.0xxin.flashsale</groupId>
-            <artifactId>common-core</artifactId>
+            <artifactId>common-web</artifactId>
             <version>${project.version}</version>
         </dependency>
 

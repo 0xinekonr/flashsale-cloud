@@ -30,7 +30,14 @@
 
         <dependency>
             <groupId>com.0xxin.flashsale</groupId>
-            <artifactId>common-core</artifactId>
+            <artifactId>common-web</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- 消息队列工具：OutboxMessage、幂等消费 -->
+        <dependency>
+            <groupId>com.0xxin.flashsale</groupId>
+            <artifactId>common-mq</artifactId>
             <version>${project.version}</version>
         </dependency>
 
