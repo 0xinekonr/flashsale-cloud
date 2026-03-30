@@ -37,6 +37,9 @@ public class SeckillLoader {
 
     /**
      * 应用启动时加载所有进行中活动的库存到 Redis
+     *
+     * 使用 setIfAbsent（不覆盖已有数据），防止重启时重置
+     * 已经被 Lua 脚本部分扣减的库存。
      */
     @PostConstruct
     public void loadStock() {
@@ -50,8 +53,17 @@ public class SeckillLoader {
             return;
         }
 
-        activities.forEach(activity -> preloadActivity(activity.getId()));
-        log.info("库存预热完成，共加载 {} 个活动", activities.size());
+        for (SeckillActivity activity : activities) {
+            String stockKey = GlobalConstants.RedisKey.SECKILL_STOCK_PREFIX + activity.getId();
+            Boolean set = redisTemplate.opsForValue()
+                    .setIfAbsent(stockKey, String.valueOf(activity.getAvailableStock()));
+            if (Boolean.TRUE.equals(set)) {
+                log.info("库存预热完成: activityId={}, stock={}", activity.getId(), activity.getAvailableStock());
+            } else {
+                log.info("库存预热跳过（Redis 已有数据）: activityId={}", activity.getId());
+            }
+        }
+        log.info("启动库存预热完成，共检查 {} 个活动", activities.size());
     }
 
     /**

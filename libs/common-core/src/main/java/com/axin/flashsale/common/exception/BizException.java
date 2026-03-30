@@ -15,6 +15,15 @@ public class BizException extends RuntimeException {
         this.code = resultCode.getCode();
     }
 
+    /**
+     * 使用错误码枚举 + 自定义消息
+     * 保留错误码的语义，同时支持自定义错误详情
+     */
+    public BizException(IResultCode resultCode, String customMessage) {
+        super(customMessage);
+        this.code = resultCode.getCode();
+    }
+
     public BizException(Integer code, String message) {
         super(message);
         this.code = code;

@@ -126,8 +126,12 @@ public class SeckillActivityService {
     public SeckillActivityVO end(Long id) {
         SeckillActivity activity = getActivityOrThrow(id);
 
-        if (activity.getStatus() != SeckillActivityStatus.ONGOING.getCode()) {
+        // 根据当前状态返回更准确的错误信息
+        if (activity.getStatus() == SeckillActivityStatus.ENDED.getCode()) {
             throw new BizException(SeckillErrorCode.ACTIVITY_ENDED);
+        }
+        if (activity.getStatus() == SeckillActivityStatus.DRAFT.getCode()) {
+            throw new BizException(SeckillErrorCode.ACTIVITY_DRAFT, "草稿状态的活动请先发布再结束");
         }
 
         activity.setStatus(SeckillActivityStatus.ENDED.getCode());

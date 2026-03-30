@@ -28,10 +28,11 @@ public class UserContext {
         if (auth == null || auth.getToken() == null) {
             throw new IllegalStateException("用户未认证");
         }
-        Long userId = auth.getToken().getClaim("user_id");
+        // JWT 中的数字可能被解析为 Integer 或 Long，使用 Number 统一处理
+        Number userId = auth.getToken().getClaim("user_id");
         if (userId == null) {
             throw new IllegalStateException("JWT token 中缺少 user_id 声明");
         }
-        return userId;
+        return userId.longValue();
     }
 }
