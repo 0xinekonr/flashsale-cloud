@@ -3,6 +3,7 @@ package com.axin.flashsale.payment.controller;
 import com.axin.flashsale.common.constant.GlobalConstants;
 import com.axin.flashsale.common.response.Result;
 import com.axin.flashsale.payment.entity.Payment;
+import com.axin.flashsale.payment.enums.PaymentStatusEnum;
 import com.axin.flashsale.payment.mapper.PaymentMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -24,7 +25,7 @@ public class PaymentController {
 
     @PostMapping
     public Result<Long> createPayment(@RequestBody Payment payment) {
-        payment.setStatus("PENDING");
+        payment.setStatus(PaymentStatusEnum.PENDING.getCode());
         payment.setCreateTime(LocalDateTime.now());
         paymentMapper.insert(payment);
         log.info("支付流水创建成功, paymentId={}", payment.getId());
@@ -34,11 +35,11 @@ public class PaymentController {
     @PostMapping("/{id}/notify")
     public Result<String> notifyPayment(@PathVariable Long id) {
         Payment payment = paymentMapper.selectById(id);
-        if (payment == null || "SUCCESS".equals(payment.getStatus())) {
+        if (payment == null || PaymentStatusEnum.SUCCESS.getCode().equals(payment.getStatus())) {
             return Result.success("已处理");
         }
 
-        payment.setStatus("SUCCESS");
+        payment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
         payment.setTransactionId("ALIPAY_" + System.currentTimeMillis());
         paymentMapper.updateById(payment);
 
