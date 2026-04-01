@@ -1,6 +1,7 @@
 package com.axin.flashsale.payment.controller;
 
 import com.axin.flashsale.common.response.Result;
+import com.axin.flashsale.payment.dto.PaymentCallbackDTO;
 import com.axin.flashsale.payment.dto.PaymentRequest;
 import com.axin.flashsale.payment.dto.RefundRequest;
 import com.axin.flashsale.payment.entity.Payment;
@@ -27,10 +28,29 @@ public class PaymentController {
         return Result.success(paymentId);
     }
 
+    /**
+     * 支付回调接口（模拟第三方支付平台回调）
+     * 需要验证签名
+     */
+    @PostMapping("/callback")
+    public Result<String> paymentCallback(@RequestBody PaymentCallbackDTO callback) {
+        paymentService.processCallback(callback);
+        return Result.success("SUCCESS");
+    }
+
+    /**
+     * 模拟回调接口（仅用于测试，无需签名）
+     */
     @PostMapping("/{id}/notify")
     public Result<String> notifyPayment(@PathVariable Long id) {
-        String transactionId = "ALIPAY_" + System.currentTimeMillis();
-        paymentService.processCallback(id, transactionId);
+        // 构造模拟回调数据
+        PaymentCallbackDTO callback = new PaymentCallbackDTO();
+        callback.setPaymentId(id);
+        callback.setTransactionId("ALIPAY_" + System.currentTimeMillis());
+        callback.setStatus("SUCCESS");
+        callback.setTimestamp(System.currentTimeMillis());
+        // 模拟回调不验证签名，直接处理
+        paymentService.processCallbackWithoutSignVerify(id, callback.getTransactionId());
         return Result.success("SUCCESS");
     }
 

@@ -4,10 +4,12 @@ import com.axin.flashsale.common.constant.GlobalConstants;
 import com.axin.flashsale.common.exception.BizException;
 import com.axin.flashsale.payment.client.OrderClient;
 import com.axin.flashsale.payment.dto.OrderDTO;
+import com.axin.flashsale.payment.dto.PaymentCallbackDTO;
 import com.axin.flashsale.payment.entity.Payment;
 import com.axin.flashsale.payment.enums.PaymentStatusEnum;
 import com.axin.flashsale.payment.exception.PaymentErrorCode;
 import com.axin.flashsale.payment.mapper.PaymentMapper;
+import com.axin.flashsale.payment.util.PaymentSignatureUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 支付服务
@@ -32,6 +36,9 @@ public class PaymentService {
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
+
+    @Autowired
+    private PaymentSignatureUtil signatureUtil;
 
     /**
      * 创建支付流水
@@ -56,30 +63,69 @@ public class PaymentService {
     }
 
     /**
-     * 处理支付回调（模拟）
-     * 后续 commit 会添加签名验证和幂等处理
+     * 处理支付回调（带签名验证）
      */
     @Transactional
-    public void processCallback(Long paymentId, String transactionId) {
-        Payment payment = paymentMapper.selectById(paymentId);
+    public void processCallback(PaymentCallbackDTO callback) {
+        // 1. 验证签名
+        verifySignature(callback);
+
+        // 2. 处理回调
+        doProcessCallback(callback);
+    }
+
+    /**
+     * 处理支付回调（无签名验证，仅用于测试/内部调用）
+     */
+    @Transactional
+    public void processCallbackWithoutSignVerify(Long paymentId, String transactionId) {
+        PaymentCallbackDTO callback = new PaymentCallbackDTO();
+        callback.setPaymentId(paymentId);
+        callback.setTransactionId(transactionId);
+        callback.setStatus("SUCCESS");
+        doProcessCallback(callback);
+    }
+
+    /**
+     * 实际处理回调逻辑
+     */
+    private void doProcessCallback(PaymentCallbackDTO callback) {
+        Payment payment = paymentMapper.selectById(callback.getPaymentId());
         if (payment == null) {
             throw new BizException(PaymentErrorCode.PAYMENT_NOT_FOUND);
         }
 
+        // 幂等检查
         if (PaymentStatusEnum.SUCCESS.getCode().equals(payment.getStatus())) {
-            log.info("支付已处理, paymentId={}", paymentId);
+            log.info("支付已处理, paymentId={}", callback.getPaymentId());
             return;
         }
 
         // 更新支付状态
         payment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
-        payment.setTransactionId(transactionId);
+        payment.setTransactionId(callback.getTransactionId());
         payment.setUpdateTime(LocalDateTime.now());
         paymentMapper.updateById(payment);
 
         // 发送 MQ 通知订单服务
         rabbitTemplate.convertAndSend(GlobalConstants.MQ.ORDER_PAY_QUEUE, payment.getOrderId());
-        log.info("支付成功, paymentId={}, orderId={}, 已发送MQ通知", paymentId, payment.getOrderId());
+        log.info("支付成功, paymentId={}, orderId={}, 已发送MQ通知", callback.getPaymentId(), payment.getOrderId());
+    }
+
+    /**
+     * 验证回调签名
+     */
+    private void verifySignature(PaymentCallbackDTO callback) {
+        Map<String, String> params = new HashMap<>();
+        params.put("paymentId", callback.getPaymentId() != null ? callback.getPaymentId().toString() : "");
+        params.put("transactionId", callback.getTransactionId() != null ? callback.getTransactionId() : "");
+        params.put("amount", callback.getAmount() != null ? callback.getAmount().toString() : "");
+        params.put("status", callback.getStatus() != null ? callback.getStatus() : "");
+        params.put("timestamp", callback.getTimestamp() != null ? callback.getTimestamp().toString() : "");
+
+        if (!signatureUtil.verifySign(params, callback.getSign())) {
+            throw new BizException(PaymentErrorCode.SIGNATURE_INVALID);
+        }
     }
 
     /**
