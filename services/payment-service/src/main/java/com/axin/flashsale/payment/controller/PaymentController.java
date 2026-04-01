@@ -1,16 +1,13 @@
 package com.axin.flashsale.payment.controller;
 
-import com.axin.flashsale.common.constant.GlobalConstants;
 import com.axin.flashsale.common.response.Result;
+import com.axin.flashsale.payment.dto.PaymentRequest;
+import com.axin.flashsale.payment.dto.RefundRequest;
 import com.axin.flashsale.payment.entity.Payment;
-import com.axin.flashsale.payment.enums.PaymentStatusEnum;
-import com.axin.flashsale.payment.mapper.PaymentMapper;
+import com.axin.flashsale.payment.service.PaymentService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-
-import java.time.LocalDateTime;
 
 @Slf4j
 @RestController
@@ -18,33 +15,34 @@ import java.time.LocalDateTime;
 public class PaymentController {
 
     @Autowired
-    private PaymentMapper paymentMapper;
-
-    @Autowired
-    private RabbitTemplate rabbitTemplate;
+    private PaymentService paymentService;
 
     @PostMapping
-    public Result<Long> createPayment(@RequestBody Payment payment) {
-        payment.setStatus(PaymentStatusEnum.PENDING.getCode());
-        payment.setCreateTime(LocalDateTime.now());
-        paymentMapper.insert(payment);
-        log.info("支付流水创建成功, paymentId={}", payment.getId());
-        return Result.success(payment.getId());
+    public Result<Long> createPayment(@RequestBody PaymentRequest request) {
+        Long paymentId = paymentService.createPayment(
+                request.getOrderId(),
+                request.getUserId(),
+                request.getAmount()
+        );
+        return Result.success(paymentId);
     }
 
     @PostMapping("/{id}/notify")
     public Result<String> notifyPayment(@PathVariable Long id) {
-        Payment payment = paymentMapper.selectById(id);
-        if (payment == null || PaymentStatusEnum.SUCCESS.getCode().equals(payment.getStatus())) {
-            return Result.success("已处理");
-        }
-
-        payment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
-        payment.setTransactionId("ALIPAY_" + System.currentTimeMillis());
-        paymentMapper.updateById(payment);
-
-        rabbitTemplate.convertAndSend(GlobalConstants.MQ.ORDER_PAY_QUEUE, payment.getOrderId());
-        log.info("支付成功, orderId={}, 已发送MQ通知", payment.getOrderId());
+        String transactionId = "ALIPAY_" + System.currentTimeMillis();
+        paymentService.processCallback(id, transactionId);
         return Result.success("SUCCESS");
+    }
+
+    @PostMapping("/{id}/refund")
+    public Result<Void> refundPayment(@PathVariable Long id,
+                                       @RequestBody(required = false) RefundRequest request) {
+        paymentService.refund(id, request != null ? request.getAmount() : null);
+        return Result.success();
+    }
+
+    @GetMapping("/{id}")
+    public Result<Payment> getPayment(@PathVariable Long id) {
+        return Result.success(paymentService.getById(id));
     }
 }
