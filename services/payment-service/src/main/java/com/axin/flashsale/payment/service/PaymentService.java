@@ -2,6 +2,7 @@ package com.axin.flashsale.payment.service;
 
 import com.axin.flashsale.common.constant.GlobalConstants;
 import com.axin.flashsale.common.exception.BizException;
+import com.axin.flashsale.common.mq.consumer.IdempotentConsumer;
 import com.axin.flashsale.payment.client.OrderClient;
 import com.axin.flashsale.payment.dto.OrderDTO;
 import com.axin.flashsale.payment.dto.PaymentCallbackDTO;
@@ -39,6 +40,9 @@ public class PaymentService {
 
     @Autowired
     private PaymentSignatureUtil signatureUtil;
+
+    @Autowired
+    private IdempotentConsumer idempotentConsumer;
 
     /**
      * 创建支付流水
@@ -87,29 +91,34 @@ public class PaymentService {
     }
 
     /**
-     * 实际处理回调逻辑
+     * 实际处理回调逻辑（带 Redis 幂等）
      */
     private void doProcessCallback(PaymentCallbackDTO callback) {
-        Payment payment = paymentMapper.selectById(callback.getPaymentId());
-        if (payment == null) {
-            throw new BizException(PaymentErrorCode.PAYMENT_NOT_FOUND);
-        }
+        // 使用 transactionId 作为幂等键
+        String idempotentKey = callback.getTransactionId();
 
-        // 幂等检查
-        if (PaymentStatusEnum.SUCCESS.getCode().equals(payment.getStatus())) {
-            log.info("支付已处理, paymentId={}", callback.getPaymentId());
-            return;
-        }
+        idempotentConsumer.consume(idempotentKey, callback, cb -> {
+            Payment payment = paymentMapper.selectById(cb.getPaymentId());
+            if (payment == null) {
+                throw new BizException(PaymentErrorCode.PAYMENT_NOT_FOUND);
+            }
 
-        // 更新支付状态
-        payment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
-        payment.setTransactionId(callback.getTransactionId());
-        payment.setUpdateTime(LocalDateTime.now());
-        paymentMapper.updateById(payment);
+            // DB 层幂等检查（双重保障）
+            if (PaymentStatusEnum.SUCCESS.getCode().equals(payment.getStatus())) {
+                log.info("支付已处理(DB层), paymentId={}", cb.getPaymentId());
+                return;
+            }
 
-        // 发送 MQ 通知订单服务
-        rabbitTemplate.convertAndSend(GlobalConstants.MQ.ORDER_PAY_QUEUE, payment.getOrderId());
-        log.info("支付成功, paymentId={}, orderId={}, 已发送MQ通知", callback.getPaymentId(), payment.getOrderId());
+            // 更新支付状态
+            payment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
+            payment.setTransactionId(cb.getTransactionId());
+            payment.setUpdateTime(LocalDateTime.now());
+            paymentMapper.updateById(payment);
+
+            // 发送 MQ 通知订单服务
+            rabbitTemplate.convertAndSend(GlobalConstants.MQ.ORDER_PAY_QUEUE, payment.getOrderId());
+            log.info("支付成功, paymentId={}, orderId={}, 已发送MQ通知", cb.getPaymentId(), payment.getOrderId());
+        });
     }
 
     /**

@@ -26,6 +26,8 @@ public interface GlobalConstants {
     interface RedisKey {
         String SECKILL_STOCK_PREFIX = "seckill:stock:";
         String SECKILL_USER_SET_PREFIX = "seckill:users:";
+        String PAYMENT_CALLBACK_PREFIX = "payment:callback:";
+        String PAYMENT_LOCK_PREFIX = "payment:lock:";
     }
 
     // ================= RabbitMQ 队列与交换机 =================
