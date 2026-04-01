@@ -28,6 +28,7 @@ public interface GlobalConstants {
         String SECKILL_USER_SET_PREFIX = "seckill:users:";
         String PAYMENT_CALLBACK_PREFIX = "payment:callback:";
         String PAYMENT_LOCK_PREFIX = "payment:lock:";
+        String ORDER_LOCK_PREFIX = "order:lock:";
     }
 
     // ================= RabbitMQ 队列与交换机 =================

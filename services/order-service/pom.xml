@@ -41,6 +41,13 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Redis 工具：分布式锁 -->
+        <dependency>
+            <groupId>com.0xxin.flashsale</groupId>
+            <artifactId>common-redis</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
