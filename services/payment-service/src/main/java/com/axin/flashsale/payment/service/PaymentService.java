@@ -1,8 +1,8 @@
 package com.axin.flashsale.payment.service;
 
-import com.axin.flashsale.common.constant.GlobalConstants;
 import com.axin.flashsale.common.exception.BizException;
 import com.axin.flashsale.common.mq.consumer.IdempotentConsumer;
+import com.axin.flashsale.common.mq.publisher.OutboxPublisher;
 import com.axin.flashsale.payment.client.OrderClient;
 import com.axin.flashsale.payment.dto.OrderDTO;
 import com.axin.flashsale.payment.dto.PaymentCallbackDTO;
@@ -12,7 +12,6 @@ import com.axin.flashsale.payment.exception.PaymentErrorCode;
 import com.axin.flashsale.payment.mapper.PaymentMapper;
 import com.axin.flashsale.payment.util.PaymentSignatureUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,7 +35,7 @@ public class PaymentService {
     private OrderClient orderClient;
 
     @Autowired
-    private RabbitTemplate rabbitTemplate;
+    private OutboxPublisher outboxPublisher;
 
     @Autowired
     private PaymentSignatureUtil signatureUtil;
@@ -115,9 +114,14 @@ public class PaymentService {
             payment.setUpdateTime(LocalDateTime.now());
             paymentMapper.updateById(payment);
 
-            // 发送 MQ 通知订单服务
-            rabbitTemplate.convertAndSend(GlobalConstants.MQ.ORDER_PAY_QUEUE, payment.getOrderId());
-            log.info("支付成功, paymentId={}, orderId={}, 已发送MQ通知", cb.getPaymentId(), payment.getOrderId());
+            // 通过 Outbox 模式发送 MQ 通知订单服务（可靠投递）
+            outboxPublisher.publish(
+                    "PAYMENT",
+                    payment.getId(),
+                    "PAYMENT_SUCCESS",
+                    payment.getOrderId().toString()
+            );
+            log.info("支付成功, paymentId={}, orderId={}, 已写入Outbox", cb.getPaymentId(), payment.getOrderId());
         });
     }
 
