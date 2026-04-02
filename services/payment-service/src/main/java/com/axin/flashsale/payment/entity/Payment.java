@@ -17,8 +17,10 @@ public class Payment {
     private Long orderId;
     private Long userId;
     private BigDecimal amount;
-    private String status;
+    private Integer status;
     private String transactionId;
+    private BigDecimal refundAmount;
+    private LocalDateTime refundTime;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }
