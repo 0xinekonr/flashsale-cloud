@@ -17,6 +17,10 @@ spring:
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD:nacos}
         file-extension: yml
+        shared-configs:
+          - data-id: common-actuator.yml
+            group: DEFAULT_GROUP
+            refresh: true
   config:
     import:
       - optional:nacos:${spring.application.name}-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}

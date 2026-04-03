@@ -1,0 +1,20 @@
+# 通用 Seata 分布式事务配置 - 需要分布式事务的服务共享
+# 在 Nacos 中创建: common-seata.yml, Group: DEFAULT_GROUP
+# 使用服务: order-service, inventory-service
+
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: default_tx_group
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: ${NACOS_ADDR:127.0.0.1:18848}
+      group: SEATA_GROUP
+      namespace:
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+  service:
+    vgroup-mapping:
+      default_tx_group: default
