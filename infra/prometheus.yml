@@ -7,9 +7,8 @@ scrape_configs:
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets:
-          - 'host.docker.internal:18080'  # gateway
           - 'host.docker.internal:18081'  # user-service
-          - 'host.docker.internal:18082'  # gateway actuator (if separate)
+          - 'host.docker.internal:18082'  # gateway
           - 'host.docker.internal:18083'  # inventory-service
           - 'host.docker.internal:18084'  # order-service
           - 'host.docker.internal:18085'  # payment-service

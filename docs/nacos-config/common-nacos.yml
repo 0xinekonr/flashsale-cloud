@@ -1,6 +1,0 @@
-# 通用 Nacos 配置 - 所有服务共享
-# 在 Nacos 中创建: common-nacos.yml, Group: DEFAULT_GROUP
-
-# 此配置文件包含 Nacos 连接信息
-# 注意: discovery 和 config 的 server-addr 需要在本地 application.yml 中配置
-# 因为它们需要在连接 Nacos 之前就确定
