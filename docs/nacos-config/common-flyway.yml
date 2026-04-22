@@ -1,0 +1,8 @@
+# 通用 Flyway 配置 - 需要 DB 的服务共享
+# 在 Nacos 中创建: common-flyway.yml, Group: DEFAULT_GROUP
+
+spring:
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration

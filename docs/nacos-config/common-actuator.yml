@@ -1,0 +1,25 @@
+# 通用 Actuator 配置 - 所有服务共享
+# 在 Nacos 中创建此配置文件: common-actuator.yml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# Zipkin 追踪配置
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://${ZIPKIN_ADDR:127.0.0.1:9411}/api/v2/spans

@@ -16,27 +16,16 @@ spring:
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD:nacos}
         file-extension: yml
+        shared-configs:
+          - data-id: common-actuator.yml
+            group: DEFAULT_GROUP
+            refresh: true
+          - data-id: common-flyway.yml
+            group: DEFAULT_GROUP
+            refresh: true
+          - data-id: common-seata.yml
+            group: DEFAULT_GROUP
+            refresh: true
   config:
     import:
       - optional:nacos:${spring.application.name}-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
-  flyway:
-    enabled: true
-    baseline-on-migrate: true
-
-# Seata 分布式事务配置
-seata:
-  enabled: true
-  application-id: ${spring.application.name}
-  tx-service-group: default_tx_group
-  registry:
-    type: nacos
-    nacos:
-      application: seata-server
-      server-addr: ${NACOS_ADDR:127.0.0.1:18848}
-      group: SEATA_GROUP
-      namespace:
-      username: ${NACOS_USERNAME:nacos}
-      password: ${NACOS_PASSWORD:nacos}
-  service:
-    vgroup-mapping:
-      default_tx_group: default

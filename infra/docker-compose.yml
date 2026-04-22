@@ -1,54 +1,137 @@
+name: flashsale-infra
+
+x-service-defaults: &service-defaults
+  restart: "no"
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  networks:
+    - flashsale-infra
+
+x-host-access-service: &host-access-service
+  <<: *service-defaults
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+x-java-service: &java-service
+  <<: *host-access-service
+  init: true
+
 services:
+  # Core services start with: docker compose up -d
+  # Optional observability stack: docker compose --profile observability up -d
   nacos:
+    <<: *java-service
     image: nacos/nacos-server:v3.1.1
     container_name: nacos
     environment:
-      - MODE=standalone
-      - SPRING_DATASOURCE_PLATFORM=mysql
-      - MYSQL_SERVICE_HOST=host.docker.internal
-      - MYSQL_SERVICE_PORT=3306
-      - MYSQL_SERVICE_DB_NAME=flashsale_config
-      - MYSQL_SERVICE_USER=root
-      - MYSQL_SERVICE_PASSWORD=123456
-      - MYSQL_SERVICE_DB_PARAM=characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&serverTimezone=Asia/Shanghai
-      - NACOS_AUTH_ENABLE=true
-      - NACOS_AUTH_TOKEN=SecretKey012345678901234567890123456789012345678901234567
-      - NACOS_AUTH_IDENTITY_KEY=nacos
-      - NACOS_AUTH_IDENTITY_VALUE=nacos
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: ${MYSQL_HOST}
+      MYSQL_SERVICE_PORT: ${MYSQL_PORT}
+      MYSQL_SERVICE_DB_NAME: ${MYSQL_DB_FLASHSALE}
+      MYSQL_SERVICE_USER: ${MYSQL_USER}
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&serverTimezone=Asia/Shanghai
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN}
+      NACOS_AUTH_IDENTITY_KEY: nacos
+      NACOS_AUTH_IDENTITY_VALUE: nacos
     ports:
       - "18080:8080"
       - "18848:8848"
       - "19848:9848"
-    restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8848/nacos/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   rabbitmq:
+    <<: *service-defaults
     image: rabbitmq:3-management
     container_name: rabbitmq
-    restart: always
     ports:
-      - "5672:5672"   # 应用通信端口
-      - "15672:15672" # 管理界面端口
+      - "5672:5672"
+      - "15672:15672"
     environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=admin
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   seata-server:
+    <<: *java-service
     image: apache/seata-server:2.6.0
     container_name: seata-server
-    restart: always
+    depends_on:
+      nacos:
+        condition: service_healthy
     ports:
       - "7091:7091"
       - "8091:8091"
+    environment:
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-123456}
     volumes:
-      - ./seata-application.yml:/seata-server/resources/application.yml
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ./seata-application.yml:/seata-server/resources/application.yml:ro
 
   zipkin:
+    <<: *service-defaults
+    profiles:
+      - observability
     image: openzipkin/zipkin
     container_name: zipkin
-    restart: always
     ports:
       - "9411:9411"
+
+  prometheus:
+    <<: *host-access-service
+    profiles:
+      - observability
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    <<: *service-defaults
+    profiles:
+      - observability
+    image: grafana/grafana:latest
+    container_name: grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+
+volumes:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-storage:
+
+networks:
+  flashsale-infra:
+    name: flashsale-infra

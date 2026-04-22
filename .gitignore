@@ -7,9 +7,12 @@ target/
 
 ### Binaries & test data ###
 *.jar
-!.mvn/wrapper/maven-wrapper.jar
 *.csv
 *.jmx
+
+### Environment files ###
+.env
+infra/.env
 
 ### Claude Code ###
 .claude/
